@@ -1,0 +1,352 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "LwSaGeK2R2HC"
+      },
+      "source": [
+        "# Machine Learning - Unidad 2\n",
+        "## Modelado Supervisado y Evaluación\n",
+        "\n",
+        "**Curso:** Machine Learning - Escuela de Ingeniería, Universidad Mayor  \n",
+        "**Dataset:** California Housing (Kaggle)  \n",
+        "**Integrantes:** [Nombre 1] · [Nombre 2] · [Nombre 3]"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "BWIcfB7XR2HC"
+      },
+      "source": [
+        "## Introducción\n",
+        "\n",
+        "En la **Unidad 1** se construyó un pipeline reproducible: exploración, limpieza, imputación (mediana), winsorización [1%, 99%], codificación One-Hot de `ocean_proximity`, creación del target binario `house_category` (corte en mediana) y división en Train/Validación/Test (70/15/15) con `stratify=y`.\n",
+        "\n",
+        "En la **Unidad 2** se aplican modelos supervisados de clasificación binaria, se evalúan con métricas, se optimizan hiperparámetros y se selecciona el modelo final."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "8rr2pq4dR2HD",
+        "outputId": "33d63601-44b0-4f44-a92a-fa67cfdba68e"
+      },
+      "source": [
+        "import pandas as pd\n",
+        "import numpy as np\n",
+        "import matplotlib.pyplot as plt\n",
+        "import seaborn as sns\n",
+        "from scipy import stats\n",
+        "import warnings\n",
+        "warnings.filterwarnings(\"ignore\")\n",
+        "print(\"Librerías cargadas ✓\")"
+      ],
+      "execution_count": 5,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Librerías cargadas ✓\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "mg88vjH_R2HE"
+      },
+      "source": [
+        "## Replicación del preprocesamiento de Unidad 1"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "ZOYKGAZIR2HE",
+        "outputId": "6d78773c-5882-4238-b39b-35950b0f0a8d"
+      },
+      "source": [
+        "# Carga\n",
+        "df = pd.read_csv(\"housing.csv\")\n",
+        "print(f\"Dimensiones: {df.shape}\")\n",
+        "\n",
+        "# Imputación mediana\n",
+        "mediana_bed = df[\"total_bedrooms\"].median()\n",
+        "df[\"total_bedrooms\"] = df[\"total_bedrooms\"].fillna(mediana_bed)\n",
+        "\n",
+        "# Winsorización [1%, 99%]\n",
+        "num_cols = df.select_dtypes(include=\"number\").columns\n",
+        "for col in num_cols:\n",
+        "    p1, p99 = df[col].quantile(0.01), df[col].quantile(0.99)\n",
+        "    df[col] = df[col].clip(p1, p99)\n",
+        "\n",
+        "# One-Hot encoding\n",
+        "df = pd.get_dummies(df, columns=[\"ocean_proximity\"], drop_first=False)\n",
+        "\n",
+        "# Limpieza de nombres de columnas (reemplazar <, >, [, ] por _)\n",
+        "df.columns = df.columns.str.replace('[<>\\[\\]]', '_', regex=True)\n",
+        "\n",
+        "# Target binaria\n",
+        "mediana_precio = df[\"median_house_value\"].median()\n",
+        "df[\"house_category\"] = (df[\"median_house_value\"] >= mediana_precio).astype(int)\n",
+        "\n",
+        "# X e y\n",
+        "target = \"house_category\"\n",
+        "X = df.drop(columns=[target, \"median_house_value\"])\n",
+        "y = df[target]\n",
+        "print(f\"X: {X.shape} | y: {y.shape}\")"
+      ],
+      "execution_count": 6,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Dimensiones: (20640, 10)\n",
+            "X: (20640, 13) | y: (20640,)\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "b7SrAHtcR2HE",
+        "outputId": "31f19dd4-a002-451a-b0e2-7dd919b1c0a7"
+      },
+      "source": [
+        "# Split 70/15/15 con stratify\n",
+        "from sklearn.model_selection import train_test_split\n",
+        "from sklearn.preprocessing import StandardScaler\n",
+        "\n",
+        "X_tv, X_test, y_tv, y_test = train_test_split(\n",
+        "    X, y, test_size=0.15, random_state=42, stratify=y\n",
+        ")\n",
+        "X_train, X_val, y_train, y_val = train_test_split(\n",
+        "    X_tv, y_tv, test_size=0.176, random_state=42, stratify=y_tv\n",
+        ")\n",
+        "\n",
+        "# Escalado\n",
+        "scaler = StandardScaler()\n",
+        "X_train = pd.DataFrame(scaler.fit_transform(X_train), columns=X.columns)\n",
+        "X_val = pd.DataFrame(scaler.transform(X_val), columns=X.columns)\n",
+        "X_test = pd.DataFrame(scaler.transform(X_test), columns=X.columns)\n",
+        "\n",
+        "print(f\"Train: {len(X_train)} | Val: {len(X_val)} | Test: {len(X_test)}\")"
+      ],
+      "execution_count": 7,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Train: 14456 | Val: 3088 | Test: 3096\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "vQ3KWC6sR2HE"
+      },
+      "source": [
+        "---\n",
+        "# PUNTO 1. Entrenar diferentes modelos de Machine Learning"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "n2F0ud-rR2HE",
+        "outputId": "4b9fcded-02e8-43ca-b981-9e91482412de"
+      },
+      "source": [
+        "from sklearn.linear_model import LogisticRegression\n",
+        "from sklearn.ensemble import RandomForestClassifier\n",
+        "from xgboost import XGBClassifier\n",
+        "from sklearn.neural_network import MLPClassifier\n",
+        "\n",
+        "# Lasso equivalente (penalty L1)\n",
+        "l1_clf = LogisticRegression(penalty='l1', solver='saga', max_iter=1000, random_state=42)\n",
+        "l1_clf.fit(X_train, y_train)\n",
+        "print(\"L1 (Lasso) ✓\")\n",
+        "\n",
+        "# Ridge equivalente (penalty L2)\n",
+        "l2_clf = LogisticRegression(penalty='l2', solver='saga', max_iter=1000, random_state=42)\n",
+        "l2_clf.fit(X_train, y_train)\n",
+        "print(\"L2 (Ridge) ✓\")\n",
+        "\n",
+        "# ElasticNet\n",
+        "en_clf = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.5, max_iter=1000, random_state=42)\n",
+        "en_clf.fit(X_train, y_train)\n",
+        "print(\"ElasticNet ✓\")\n",
+        "\n",
+        "# Random Forest\n",
+        "rf_clf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)\n",
+        "rf_clf.fit(X_train, y_train)\n",
+        "print(\"Random Forest ✓\")\n",
+        "\n",
+        "# XGBoost\n",
+        "xgb_clf = XGBClassifier(n_estimators=100, random_state=42, verbosity=0)\n",
+        "xgb_clf.fit(X_train, y_train)\n",
+        "print(\"XGBoost ✓\")\n",
+        "\n",
+        "# Red Neuronal\n",
+        "mlp_clf = MLPClassifier(hidden_layer_sizes=(100, 50), max_iter=500, random_state=42, early_stopping=True)\n",
+        "mlp_clf.fit(X_train, y_train)\n",
+        "print(\"Red Neuronal ✓\")"
+      ],
+      "execution_count": 8,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "L1 (Lasso) ✓\n",
+            "L2 (Ridge) ✓\n",
+            "ElasticNet ✓\n",
+            "Random Forest ✓\n",
+            "XGBoost ✓\n",
+            "Red Neuronal ✓\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "5UoukYafR2HE"
+      },
+      "source": [
+        "---\n",
+        "# PUNTO 2. Métricas de desempeño (Train + Validation)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "0W20DhYBR2HE",
+        "outputId": "d06aa0ef-13df-48e9-e501-88098a3272b6"
+      },
+      "source": [
+        "from sklearn.metrics import (accuracy_score, precision_score, recall_score,\n",
+        "                             f1_score, roc_auc_score, classification_report)\n",
+        "from scipy.stats import ks_2samp\n",
+        "\n",
+        "def evaluar(modelo, X_tr, y_tr, X_v, y_v, nombre):\n",
+        "    yp_tr = modelo.predict(X_tr)\n",
+        "    yp_v = modelo.predict(X_v)\n",
+        "    yprob_v = modelo.predict_proba(X_v)[:, 1]\n",
+        "    pos = yprob_v[y_v == 1]\n",
+        "    neg = yprob_v[y_v == 0]\n",
+        "    ks, _ = ks_2samp(pos, neg)\n",
+        "    return {\n",
+        "        'Modelo': nombre,\n",
+        "        'Accuracy_Train': accuracy_score(y_tr, yp_tr),\n",
+        "        'Accuracy_Val': accuracy_score(y_v, yp_v),\n",
+        "        'Precision_Val': precision_score(y_v, yp_v),\n",
+        "        'Recall_Val': recall_score(y_v, yp_v),\n",
+        "        'F1_Val': f1_score(y_v, yp_v),\n",
+        "        'AUC_Val': roc_auc_score(y_v, yprob_v),\n",
+        "        'KS_Val': ks,\n",
+        "    }\n",
+        "\n",
+        "modelos = [\n",
+        "    (l1_clf, 'L1 (Lasso)'),\n",
+        "    (l2_clf, 'L2 (Ridge)'),\n",
+        "    (en_clf, 'ElasticNet'),\n",
+        "    (rf_clf, 'Random Forest'),\n",
+        "    (xgb_clf, 'XGBoost'),\n",
+        "    (mlp_clf, 'Red Neuronal'),\n",
+        "]\n",
+        "\n",
+        "resultados = [evaluar(m, X_train, y_train, X_val, y_val, n) for m, n in modelos]\n",
+        "df_resultados = pd.DataFrame(resultados)\n",
+        "print(df_resultados.to_string(index=False, float_format='%.4f'))"
+      ],
+      "execution_count": 9,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "       Modelo  Accuracy_Train  Accuracy_Val  Precision_Val  Recall_Val  F1_Val  AUC_Val  KS_Val\n",
+            "   L1 (Lasso)          0.8398        0.8413         0.8324      0.8550  0.8436   0.9215  0.6924\n",
+            "   L2 (Ridge)          0.8401        0.8410         0.8323      0.8544  0.8432   0.9215  0.6937\n",
+            "   ElasticNet          0.8398        0.8410         0.8323      0.8544  0.8432   0.9215  0.6937\n",
+            "Random Forest          1.0000        0.8860         0.8826      0.8906  0.8866   0.9568  0.7740\n",
+            "      XGBoost          0.9778        0.8980         0.8952      0.9016  0.8984   0.9654  0.7986\n",
+            " Red Neuronal          0.8669        0.8611         0.8720      0.8466  0.8591   0.9374  0.7254\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 206
+        },
+        "id": "xd3d6uC0R2HE",
+        "outputId": "1c4aff6c-e317-49c2-ae1d-73e25e88d4ef"
+      },
+      "source": [
+        "# Gráfico AUC y F1 en validación\n",
+        "fig, axes = plt.subplots(1, 2, figsize=(14, 5))\n",
+        "axes[0].barh(df_resultados['Modelo'], df_resultados['AUC_Val'], color='steelblue')\n",
+        "axes[0].set_xlabel('AUC')\n",
+        "axes[0].set_title('AUC en Validación')\n",
+        "axes[0].set_xlim(0.5, 1.0)\n",
+        "\n",
+        "axes[1].barh(df_resultados['Modelo'], df_resultados['F1_Val'], color='coral')\n",
+        "axes[1].set_xlabel('F1-Score')\n",
+        "axes[1].set_title('F1-Score en Validación')\n",
+        "axes[1].set_xlim(0.5, 1.0)\n",
+        "\n",
+        "plt.tight_layout()\n",
+        "plt.show()"
+      ],
+      "execution_count": 10,
+      "outputs": [
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/plain": [
+              "<Figure size 1400x500 with 2 Axes>"
+            ],
+            "image/png": "iVBORw0KGgoAAAANSUhEUgAABW0AAAHqCAYAAAB/bWzAAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwLjAsIGh0dHBzOi8vbWF0cGxvdGxpYi5vcmcvlHJYcgAAAAlwSFlzAAAPYQAAD2EBqD+naQAAY/5JREFUeJzt3Xt8j/X/x/HnZ6fPzA7OtmnMYeaYUxTKKcyxJMdKhhy+ha/KWY6FCJGIwnQYIiZJpLJoisgcsuR8CMlpYxi26/eH3z5fn7axYftc2x732+263Xyu631d1+u6LquX567PdVkMwzAEAAAAAAAAADAFJ0cXAAAAAAAAAAD4H0JbAAAAAAAAADARQlsAAAAAAAAAMBFCWwAAAAAAAAAwEUJbAAAAAAAAADARQlsAAAAAAAAAMBFCWwAAAAAAAAAwEUJbAAAAAAAAADARQlsAANJpwYIFmjt3rqPLAAAAABzut99+09ixY/X33387uhQgRyK0BQBkmQYNGqhBgwa2z0eOHJHFYtHChQvvum5
