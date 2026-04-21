@@ -10,9 +10,9 @@ Este repositorio contiene el proyecto práctico correspondiente a la **Unidad 2:
 El objetivo principal del proyecto es construir, evaluar y optimizar distintos algoritmos de clasificación binaria para predecir si el valor mediano de una vivienda en California (basado en el dataset de Kaggle) se encuentra por encima o por debajo de la mediana global del mercado.
 
 ## 👥 Equipo de Trabajo
-* [Nombre Apellido 1] - [Rol/Contacto]
-* [Nombre Apellido 2] - [Rol/Contacto]
-* [Nombre Apellido 3] - [Rol/Contacto]
+* [Hector Garrido] 
+* [Lu Chu-Ly]
+* [Alvaro Cumsille]
 
 ---
 
